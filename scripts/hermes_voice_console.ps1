@@ -23,6 +23,18 @@ function Save-Settings($values) {
 function Get-AgentProcess {
     if (-not (Test-Path $pidPath)) { return $null }; try { Get-Process -Id ([int](Get-Content $pidPath -Raw)) -ErrorAction Stop } catch { Remove-Item $pidPath -Force -ErrorAction SilentlyContinue; $null }
 }
+function Get-HermesApiSettings {
+    $command = Get-Command hermes.exe -ErrorAction SilentlyContinue
+    if (-not $command) { $command = Get-Command hermes -ErrorAction SilentlyContinue }
+    if (-not $command) { throw '未找到 Hermes 命令行程序。请先安装并启动 Hermes。' }
+    $key = ((& $command.Source config get API_SERVER_KEY 2>$null) | Select-Object -First 1).Trim()
+    if (-not $key) { throw 'Hermes 尚未配置 API_SERVER_KEY。请先在 Hermes 中启用 API Server。' }
+    $serverHost = ((& $command.Source config get API_SERVER_HOST 2>$null) | Select-Object -First 1).Trim()
+    $serverPort = ((& $command.Source config get API_SERVER_PORT 2>$null) | Select-Object -First 1).Trim()
+    if (-not $serverHost -or $serverHost -eq '0.0.0.0') { $serverHost = '127.0.0.1' }
+    if (-not $serverPort) { $serverPort = '8642' }
+    @{ Key=$key; BaseUrl="http://$serverHost`:$serverPort/v1" }
+}
 
 $settings = Get-Settings
 $form = [System.Windows.Forms.Form]@{ Text='Hermes 云端语音助手'; Size=[System.Drawing.Size]::new(670,440); StartPosition='CenterScreen'; Font=[System.Drawing.Font]::new('Microsoft YaHei UI',10); FormBorderStyle='FixedDialog'; MaximizeBox=$false }
@@ -40,8 +52,17 @@ $status=[System.Windows.Forms.Label]@{Location=[System.Drawing.Point]::new(28,28
 function Read-Settings { @{ HermesBaseUrl=$hermesUrl.Text.Trim(); HermesKey=$hermesKey.Text.Trim(); AudioBaseUrl=$audioUrl.Text.Trim(); KeyFile=$keyFile.Text.Trim() } }
 function Refresh-Status { $p=Get-AgentProcess; if($p){$status.Text="状态：运行中（进程 $($p.Id)）。关闭本窗口不会停止服务。";$status.ForeColor=[System.Drawing.Color]::ForestGreen}else{$status.Text='状态：未启动。请先确认 Hermes API 服务已运行。';$status.ForeColor=[System.Drawing.Color]::DimGray} }
 function Add-Button($text,$x,$width,$action) { $b=[System.Windows.Forms.Button]@{Text=$text;Location=[System.Drawing.Point]::new($x,355);Size=[System.Drawing.Size]::new($width,42)};$b.Add_Click($action);$form.Controls.Add($b);$b }
-Add-Button '保存配置' 28 115 { Save-Settings (Read-Settings); $status.Text='配置已保存。Hermes 密钥已用当前 Windows 用户加密。';$status.ForeColor=[System.Drawing.Color]::RoyalBlue } | Out-Null
-Add-Button '一键启动语音助手' 158 180 {
+Add-Button '保存配置' 28 100 { Save-Settings (Read-Settings); $status.Text='配置已保存。Hermes 密钥已用当前 Windows 用户加密。';$status.ForeColor=[System.Drawing.Color]::RoyalBlue } | Out-Null
+Add-Button '自动获取 Hermes' 133 125 {
+    try {
+        $detected=Get-HermesApiSettings
+        $hermesUrl.Text=$detected.BaseUrl
+        $hermesKey.Text=$detected.Key
+        $status.Text='已从本机 Hermes 配置读取服务地址和 API 密钥。'
+        $status.ForeColor=[System.Drawing.Color]::ForestGreen
+    } catch {[System.Windows.Forms.MessageBox]::Show($_.Exception.Message,'自动获取失败','OK','Error')|Out-Null}
+} | Out-Null
+Add-Button '一键启动语音助手' 263 165 {
     try {
         $v=Read-Settings
         if(!$v.HermesKey){throw '请填写 Hermes API 密钥。'}
@@ -57,7 +78,17 @@ Add-Button '一键启动语音助手' 158 180 {
         Refresh-Status
     } catch {[System.Windows.Forms.MessageBox]::Show($_.Exception.Message,'无法启动','OK','Error')|Out-Null}
 } | Out-Null
-Add-Button '停止服务' 353 115 { $p=Get-AgentProcess;if($p){Stop-Process -Id $p.Id -Force};Remove-Item $pidPath -Force -ErrorAction SilentlyContinue;Refresh-Status } | Out-Null
-Add-Button '云端语音自检' 483 137 { try {$v=Read-Settings;if(!(Test-Path $v.KeyFile)){throw "找不到云端语音密钥文件：$($v.KeyFile)"};$env:SUB2API_AUDIO_KEY_FILE=$v.KeyFile;$env:SUB2API_AUDIO_BASE_URL=$v.AudioBaseUrl;$r=& uv run python "$projectRoot\scripts\sub2api_audio_smoke_test.py" 2>&1;if($LASTEXITCODE -ne 0){throw ($r|Out-String)};$status.Text="自检通过：$($r|Out-String)";$status.ForeColor=[System.Drawing.Color]::ForestGreen}catch{[System.Windows.Forms.MessageBox]::Show($_.Exception.Message,'自检失败','OK','Error')|Out-Null} } | Out-Null
-$form.Add_Shown({Refresh-Status});[void]$form.ShowDialog()
+Add-Button '停止服务' 433 90 { $p=Get-AgentProcess;if($p){Stop-Process -Id $p.Id -Force};Remove-Item $pidPath -Force -ErrorAction SilentlyContinue;Refresh-Status } | Out-Null
+Add-Button '语音自检' 528 92 {
+    try {$v=Read-Settings;if(!(Test-Path $v.KeyFile)){throw "找不到云端语音密钥文件：$($v.KeyFile)"};$env:SUB2API_AUDIO_KEY_FILE=$v.KeyFile;$env:SUB2API_AUDIO_BASE_URL=$v.AudioBaseUrl;$r=& uv run python "$projectRoot\scripts\sub2api_audio_smoke_test.py" 2>&1;if($LASTEXITCODE -ne 0){throw ($r|Out-String)};$status.Text="自检通过：$($r|Out-String)";$status.ForeColor=[System.Drawing.Color]::ForestGreen}catch{[System.Windows.Forms.MessageBox]::Show($_.Exception.Message,'自检失败','OK','Error')|Out-Null}
+} | Out-Null
+$form.Add_Shown({
+    try {
+        $detected=Get-HermesApiSettings
+        if (-not $hermesKey.Text) { $hermesKey.Text=$detected.Key }
+        if (-not $hermesUrl.Text -or $hermesUrl.Text -eq 'http://127.0.0.1:8642/v1') { $hermesUrl.Text=$detected.BaseUrl }
+    } catch { }
+    Refresh-Status
+})
+[void]$form.ShowDialog()
 
