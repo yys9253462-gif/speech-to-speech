@@ -91,6 +91,13 @@ Add-Button '一键启动语音助手' 263 165 {
         $p=Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-NoExit','-File',"$projectRoot\scripts\start_hermes_cloud_audio.ps1",'-KeyFile',$v.KeyFile,'-AudioBaseUrl',$v.AudioBaseUrl) -WorkingDirectory $projectRoot -PassThru
         New-Item -ItemType Directory -Force $stateDir|Out-Null
         Set-Content $pidPath $p.Id -Encoding ascii
+        $ballRunning = $false
+        if (Test-Path -LiteralPath (Join-Path $stateDir 'voice-ball.pid')) {
+            try { Get-Process -Id ([int](Get-Content -LiteralPath (Join-Path $stateDir 'voice-ball.pid') -Raw)) -ErrorAction Stop | Out-Null; $ballRunning = $true } catch { }
+        }
+        if (-not $ballRunning) {
+            Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',"$projectRoot\scripts\hermes_voice_ball.ps1") -WorkingDirectory $projectRoot
+        }
         Start-Sleep -Milliseconds 500
         Refresh-Status
     } catch {[System.Windows.Forms.MessageBox]::Show($_.Exception.Message,'无法启动','OK','Error')|Out-Null}
@@ -108,6 +115,7 @@ $form.Add_Shown({
     Refresh-Status
 })
 [void]$form.ShowDialog()
+
 
 
 

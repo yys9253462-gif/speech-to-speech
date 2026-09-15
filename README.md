@@ -164,6 +164,11 @@ When Hermes is installed locally, the window reads `API_SERVER_KEY`, host, and
 port through `hermes config get` automatically; use **自动获取 Hermes** to refresh
 those fields at any time.
 
+When it starts, a small floating ball appears at the right edge of the screen.
+Green **听** means the voice assistant is running; gray **语** means it is not.
+Left-click it to open the Chinese control window. Right-click it to stop the
+voice process, hide the ball, or exit it.
+
 For another gateway, set `SUB2API_AUDIO_BASE_URL` and
 `SUB2API_AUDIO_API_KEY`, then run:
 
