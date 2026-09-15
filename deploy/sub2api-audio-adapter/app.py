@@ -18,13 +18,22 @@ from pydantic import BaseModel
 app = FastAPI(title="Sub2API audio adapter")
 logger = logging.getLogger(__name__)
 SUB2API_URL = os.getenv("SUB2API_URL", "http://sub2api:8080/v1").rstrip("/")
-STT_MODEL = os.getenv("SUB2API_STT_MODEL", "gemini-3.8-flash-high")
+ANTIGRAVITY_URL = os.getenv(
+    "ANTIGRAVITY_URL", "https://gpt.isoziyuan.com/antigravity/v1beta"
+).rstrip("/")
+STT_MODEL = os.getenv("SUB2API_STT_MODEL", "gemini-3-flash")
 TTS_VOICE = os.getenv("EDGE_TTS_VOICE", "zh-CN-XiaoxiaoNeural")
 
 
 def response_text(payload: object) -> str:
     """Extract text from standard and Gemini-compatibility chat response shapes."""
 
+    if isinstance(payload, dict):
+        candidates = payload.get("candidates")
+        if isinstance(candidates, list) and candidates:
+            candidate_content = candidates[0].get("content", {}) if isinstance(candidates[0], dict) else {}
+            parts = candidate_content.get("parts", []) if isinstance(candidate_content, dict) else []
+            return "".join(part.get("text", "") for part in parts if isinstance(part, dict)).strip()
     try:
         content = payload["choices"][0]["message"]["content"]  # type: ignore[index]
     except (KeyError, IndexError, TypeError):
@@ -43,12 +52,6 @@ def response_text(payload: object) -> str:
                 if isinstance(value, str):
                     parts.append(value)
         return "".join(parts).strip()
-    if isinstance(payload, dict):
-        candidates = payload.get("candidates")
-        if isinstance(candidates, list) and candidates:
-            candidate_content = candidates[0].get("content", {}) if isinstance(candidates[0], dict) else {}
-            parts = candidate_content.get("parts", []) if isinstance(candidate_content, dict) else []
-            return "".join(part.get("text", "") for part in parts if isinstance(part, dict)).strip()
     return ""
 
 
@@ -90,30 +93,28 @@ async def transcribe(
     prompt = "请准确转写这段音频。只返回转写文字，不要解释。"
     if language:
         prompt += f" 音频语言是 {language}。"
+    selected_model = model if model and model.startswith("gemini-") else STT_MODEL
     payload = {
-        "model": model if model and model.startswith("gemini-") else STT_MODEL,
-        "stream": False,
-        "messages": [
+        "contents": [
             {
                 "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
+                "parts": [
+                    {"text": prompt},
                     {
-                        "type": "input_audio",
-                        "input_audio": {
+                        "inlineData": {
+                            "mimeType": f"audio/{audio_format}",
                             "data": base64.b64encode(audio).decode("ascii"),
-                            "format": audio_format,
-                        },
+                        }
                     },
                 ],
             }
-        ],
+        ]
     }
     text = ""
     async with httpx.AsyncClient(timeout=90) as client:
         for attempt in range(2):
             response = await client.post(
-                f"{SUB2API_URL}/chat/completions",
+                f"{ANTIGRAVITY_URL}/models/{selected_model}:generateContent",
                 headers={"Authorization": auth},
                 json=payload,
             )

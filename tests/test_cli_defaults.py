@@ -192,7 +192,7 @@ def test_hermes_cloud_audio_uses_sub2api_gateway(monkeypatch):
     assert args.module_kwargs.tts == "openai"
     assert args.stt_backend.config["base_url"] == "https://voice.example/v1"
     assert args.stt_backend.config["api_key"] == "cloud-audio-secret"
-    assert args.stt_backend.config["model"] == "gemini-3.8-flash-high"
+    assert args.stt_backend.config["model"] == "gemini-3-flash"
     assert args.tts_backend.config["base_url"] == "https://voice.example/v1"
     assert args.tts_backend.config["voice"] == "zh-CN-XiaoxiaoNeural"
     assert args.tts_backend.config["response_format"] == "pcm"

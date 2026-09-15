@@ -34,11 +34,11 @@ def main() -> None:
     token = login.json()["data"]["access_token"]
     headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": str(uuid.uuid4())}
 
-    # Group 7 is the owner's private Gemini/Antigravity group used by Hermes.
+    group_id = int(os.getenv("SUB2API_GROUP_ID", "7"))
     created = httpx.post(
         f"{base_url}/api/v1/keys",
         headers=headers,
-        json={"name": "Hermes Cloud Audio", "group_id": 7},
+        json={"name": f"Hermes Cloud Audio {group_id}", "group_id": group_id},
         timeout=30,
     )
     created.raise_for_status()

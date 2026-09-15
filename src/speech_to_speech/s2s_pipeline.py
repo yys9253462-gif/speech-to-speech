@@ -79,7 +79,7 @@ OPENAI_TTS_PLAYBACK_BUFFER_MS = 196.0
 HERMES_DEFAULT_BASE_URL = "http://127.0.0.1:8642/v1"
 HERMES_DEFAULT_MODEL = "hermes-agent"
 HERMES_CLOUD_AUDIO_BASE_URL = "https://gpt.isoziyuan.com/v1"
-HERMES_CLOUD_AUDIO_STT_MODEL = "gemini-3.8-flash-high"
+HERMES_CLOUD_AUDIO_STT_MODEL = "gemini-3-flash"
 HERMES_VOICE_PROMPT = (
     "你是通过实时语音与用户交流的 Hermes 智能体。始终使用简洁、自然的中文回答。"
     "需要时使用你已有的工具完成任务，并汇报实际结果。除非用户明确要求，否则不要朗读冗长代码、网址或日志。"

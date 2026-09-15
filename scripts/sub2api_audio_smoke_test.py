@@ -40,7 +40,7 @@ def main() -> None:
             f"{base_url}/audio/transcriptions",
             headers=headers,
             files={"file": ("smoke.wav", wav.getvalue(), "audio/wav")},
-            data={"model": "gemini-3.8-flash-high", "language": "zh"},
+            data={"model": "gemini-3-flash", "language": "zh"},
         )
         if transcription.is_error:
             raise RuntimeError(
