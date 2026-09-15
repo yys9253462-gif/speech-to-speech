@@ -156,6 +156,11 @@ $env:HERMES_API_KEY = "your-Hermes-API_SERVER_KEY"
 .\scripts\start_hermes_cloud_audio.ps1
 ```
 
+Or double-click `启动Hermes云端语音助手.bat`. It opens a Chinese configuration
+window where you can save the Hermes address and key, start or stop the voice
+service, and run the cloud-audio self-check. The Hermes key is encrypted for
+the current Windows user; the Sub2API key remains in its separate local file.
+
 For another gateway, set `SUB2API_AUDIO_BASE_URL` and
 `SUB2API_AUDIO_API_KEY`, then run:
 
