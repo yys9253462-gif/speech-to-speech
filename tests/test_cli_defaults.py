@@ -179,6 +179,30 @@ def test_hermes_preset_preserves_explicit_overrides(monkeypatch):
     assert args.llm_backend.config["api_key"] == "explicit-secret"
 
 
+def test_hermes_cloud_audio_uses_sub2api_gateway(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "local-hermes-secret")
+    monkeypatch.setenv("SUB2API_AUDIO_API_KEY", "cloud-audio-secret")
+    monkeypatch.setenv("SUB2API_AUDIO_BASE_URL", "https://voice.example/v1")
+
+    args = parse_arguments(["--hermes", "--hermes-cloud-audio"])
+    prepare_all_args(args)
+
+    assert args.module_kwargs.hermes_cloud_audio is True
+    assert args.module_kwargs.stt == "openai"
+    assert args.module_kwargs.tts == "openai"
+    assert args.stt_backend.config["base_url"] == "https://voice.example/v1"
+    assert args.stt_backend.config["api_key"] == "cloud-audio-secret"
+    assert args.stt_backend.config["model"] == "gemini-3.8-flash-high"
+    assert args.tts_backend.config["base_url"] == "https://voice.example/v1"
+    assert args.tts_backend.config["voice"] == "zh-CN-XiaoxiaoNeural"
+    assert args.tts_backend.config["response_format"] == "pcm"
+
+
+def test_hermes_cloud_audio_requires_hermes():
+    with pytest.raises(ValueError, match="requires --hermes"):
+        parse_arguments(["--hermes-cloud-audio"])
+
+
 def test_hermes_preset_requires_api_key(monkeypatch):
     monkeypatch.delenv("HERMES_API_KEY", raising=False)
     args = parse_arguments(["--hermes"])

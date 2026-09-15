@@ -34,6 +34,16 @@ class ModuleArguments:
             )
         },
     )
+    hermes_cloud_audio: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "With --hermes, send Chinese speech recognition and synthesis to the configured "
+                "Sub2API audio gateway instead of loading local ASR/TTS models. Requires "
+                "SUB2API_AUDIO_API_KEY."
+            )
+        },
+    )
     stt: Optional[str] = field(
         default="parakeet-tdt",
         metadata={

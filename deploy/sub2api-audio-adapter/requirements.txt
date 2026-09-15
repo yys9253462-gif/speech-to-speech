@@ -1,0 +1,6 @@
+edge-tts==7.2.3
+fastapi==0.116.1
+httpx==0.28.1
+miniaudio==1.61
+python-multipart==0.0.20
+uvicorn==0.35.0

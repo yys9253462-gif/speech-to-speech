@@ -78,6 +78,8 @@ MLX_DEFAULT_LM_MODEL = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
 OPENAI_TTS_PLAYBACK_BUFFER_MS = 196.0
 HERMES_DEFAULT_BASE_URL = "http://127.0.0.1:8642/v1"
 HERMES_DEFAULT_MODEL = "hermes-agent"
+HERMES_CLOUD_AUDIO_BASE_URL = "https://gpt.isoziyuan.com/v1"
+HERMES_CLOUD_AUDIO_STT_MODEL = "gemini-3.8-flash-high"
 HERMES_VOICE_PROMPT = (
     "你是通过实时语音与用户交流的 Hermes 智能体。始终使用简洁、自然的中文回答。"
     "需要时使用你已有的工具完成任务，并汇报实际结果。除非用户明确要求，否则不要朗读冗长代码、网址或日志。"
@@ -103,7 +105,7 @@ def _mac_preset_defaults(llm_backend: str) -> dict[str, Any]:
     return defaults
 
 
-def _hermes_preset_defaults() -> dict[str, Any]:
+def _hermes_preset_defaults(*, cloud_audio: bool = False) -> dict[str, Any]:
     """Return a Chinese voice preset for a local Hermes Agent API server."""
 
     defaults: dict[str, Any] = {
@@ -124,7 +126,24 @@ def _hermes_preset_defaults() -> dict[str, Any]:
         "stream_batch_sentences": 1,
         "init_chat_prompt": HERMES_VOICE_PROMPT,
     }
-    if platform == "win32":
+    if cloud_audio:
+        audio_base_url = os.getenv("SUB2API_AUDIO_BASE_URL", HERMES_CLOUD_AUDIO_BASE_URL)
+        audio_api_key = os.getenv("SUB2API_AUDIO_API_KEY")
+        defaults.update(
+            stt="openai",
+            tts="openai",
+            openai_stt_base_url=audio_base_url,
+            openai_stt_api_key=audio_api_key,
+            openai_stt_model=os.getenv("SUB2API_AUDIO_STT_MODEL", HERMES_CLOUD_AUDIO_STT_MODEL),
+            openai_stt_language="zh",
+            openai_tts_base_url=audio_base_url,
+            openai_tts_api_key=audio_api_key,
+            openai_tts_model="edge-tts",
+            openai_tts_voice="zh-CN-XiaoxiaoNeural",
+            openai_tts_response_format="pcm",
+            openai_tts_sample_rate=24000,
+        )
+    elif platform == "win32":
         # The qwentts.cpp wheel is not published for Windows and the torch
         # backend requires CUDA graphs. ChatTTS keeps Chinese speech local.
         defaults.update(
@@ -227,9 +246,12 @@ def parse_arguments(
             pipeline_json = json.load(_f)
         _mac_preset_enabled = bool(pipeline_json.get("mac_optimal_settings", False))
         _hermes_preset_enabled = bool(pipeline_json.get("hermes", False))
+        _hermes_cloud_audio_enabled = bool(pipeline_json.get("hermes_cloud_audio", False))
         if _mac_preset_enabled and _hermes_preset_enabled:
             raise ValueError("--hermes cannot be combined with --mac-optimal-settings.")
-        preset_defaults = _hermes_preset_defaults() if _hermes_preset_enabled else {}
+        if _hermes_cloud_audio_enabled and not _hermes_preset_enabled:
+            raise ValueError("--hermes-cloud-audio requires --hermes.")
+        preset_defaults = _hermes_preset_defaults(cloud_audio=_hermes_cloud_audio_enabled) if _hermes_preset_enabled else {}
         _llm_name = pipeline_json.get("llm_backend") or preset_defaults.get(
             "llm_backend", "mlx-lm" if _mac_preset_enabled else module_defaults.llm_backend
         )
@@ -243,15 +265,19 @@ def parse_arguments(
         _pre = argparse.ArgumentParser(prog=f"speech-to-speech {command}", add_help=False)
         _pre.add_argument("--mac-optimal-settings", action="store_true")
         _pre.add_argument("--hermes", action="store_true")
+        _pre.add_argument("--hermes-cloud-audio", action="store_true")
         _pre.add_argument("--stt", choices=tuple(STT_BACKENDS))
         _pre.add_argument("--llm_backend", "--llm-backend", choices=tuple(LLM_BACKENDS))
         _pre.add_argument("--tts", choices=tuple(TTS_BACKENDS))
         _pre_args = _pre.parse_known_args(pipeline_args)[0]
         _mac_preset_enabled = _pre_args.mac_optimal_settings
         _hermes_preset_enabled = _pre_args.hermes
+        _hermes_cloud_audio_enabled = _pre_args.hermes_cloud_audio
         if _mac_preset_enabled and _hermes_preset_enabled:
             raise ValueError("--hermes cannot be combined with --mac-optimal-settings.")
-        preset_defaults = _hermes_preset_defaults() if _hermes_preset_enabled else {}
+        if _hermes_cloud_audio_enabled and not _hermes_preset_enabled:
+            raise ValueError("--hermes-cloud-audio requires --hermes.")
+        preset_defaults = _hermes_preset_defaults(cloud_audio=_hermes_cloud_audio_enabled) if _hermes_preset_enabled else {}
         _stt_name = _pre_args.stt or preset_defaults.get("stt", module_defaults.stt)
         _llm_name = _pre_args.llm_backend or preset_defaults.get(
             "llm_backend", "mlx-lm" if _mac_preset_enabled else module_defaults.llm_backend
@@ -296,7 +322,7 @@ def parse_arguments(
     if _mac_preset_enabled:
         parser.set_defaults(**_mac_preset_defaults(_llm_name))
     elif _hermes_preset_enabled:
-        parser.set_defaults(**_hermes_preset_defaults())
+        parser.set_defaults(**_hermes_preset_defaults(cloud_audio=_hermes_cloud_audio_enabled))
 
     if _is_json:
         assert pipeline_json is not None

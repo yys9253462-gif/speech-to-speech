@@ -1,0 +1,19 @@
+[Unit]
+Description=Sub2API OpenAI-compatible audio adapter
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/sub2api/audio_adapter
+Environment=SUB2API_URL=http://172.19.0.1:8086/v1
+Environment=SUB2API_STT_MODEL=gemini-3.8-flash-high
+Environment=EDGE_TTS_VOICE=zh-CN-XiaoxiaoNeural
+ExecStart=/opt/sub2api/audio_adapter/.venv/bin/uvicorn app:app --host 172.19.0.1 --port 8087
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

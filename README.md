@@ -140,6 +140,34 @@ This lets Hermes finish server-side tool calls before the final answer is spoken
 and avoids exposing Hermes-specific tool-progress events as ordinary text. The
 microphone remains interruptible while speech is playing.
 
+#### Cloud audio through Sub2API
+
+Use `--hermes-cloud-audio` to avoid loading Qwen3-ASR or ChatTTS locally. The
+microphone client sends each completed turn to the OpenAI-compatible audio
+gateway, Hermes still executes tools locally, and the final response is spoken
+with cloud TTS. This repository's deployment adapter uses Gemini through
+Sub2API for Chinese transcription and Microsoft Edge TTS for Chinese speech.
+
+On this Windows machine, the deployment has saved its dedicated gateway key in
+`$HOME\.hermes-cloud-audio\api_key`. Start the complete voice loop with:
+
+```powershell
+$env:HERMES_API_KEY = "your-Hermes-API_SERVER_KEY"
+.\scripts\start_hermes_cloud_audio.ps1
+```
+
+For another gateway, set `SUB2API_AUDIO_BASE_URL` and
+`SUB2API_AUDIO_API_KEY`, then run:
+
+```powershell
+speech-to-speech local --hermes --hermes-cloud-audio
+```
+
+The bridge exposes `POST /v1/audio/transcriptions` and
+`POST /v1/audio/speech`; it is deployed as `sub2api-audio-adapter` and only
+accepts Sub2API bearer keys. Verify it without a microphone using
+`uv run python scripts/sub2api_audio_smoke_test.py`.
+
 To verify the bridge without using a microphone, start it with
 `speech-to-speech serve --hermes`, then run
 `python scripts/hermes_smoke_test.py`. The smoke test sends a Chinese turn,
