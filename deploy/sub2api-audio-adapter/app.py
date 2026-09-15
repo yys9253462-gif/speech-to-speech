@@ -109,21 +109,28 @@ async def transcribe(
             }
         ],
     }
+    text = ""
     async with httpx.AsyncClient(timeout=90) as client:
-        response = await client.post(
-            f"{SUB2API_URL}/chat/completions",
-            headers={"Authorization": auth},
-            json=payload,
-        )
-    if response.status_code != 200:
-        raise HTTPException(status_code=response.status_code, detail=response.text[:500])
-    try:
-        text = response_text(response.json())
-    except ValueError as exc:
-        raise HTTPException(status_code=502, detail="Invalid transcription response") from exc
+        for attempt in range(2):
+            response = await client.post(
+                f"{SUB2API_URL}/chat/completions",
+                headers={"Authorization": auth},
+                json=payload,
+            )
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=response.text[:500])
+            try:
+                text = response_text(response.json())
+            except ValueError as exc:
+                raise HTTPException(status_code=502, detail="Invalid transcription response") from exc
+            if text or attempt == 1:
+                break
+            payload["messages"][0]["content"][0]["text"] += " 请直接输出听到的文字。"
     if not text:
-        logger.warning("Empty STT response: top-level keys=%s", list(response.json()) if isinstance(response.json(), dict) else type(response.json()).__name__)
-        raise HTTPException(status_code=502, detail="Transcription response contained no text")
+        # The speech-to-speech client starts with a one-second silent warm-up
+        # request. Gemini correctly returns no words for silence; an empty
+        # OpenAI-compatible transcription is a successful response here.
+        logger.info("STT response contained no text (silence or no speech)")
     return {"text": text}
 
 
