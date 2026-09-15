@@ -23,6 +23,19 @@ function Save-Settings($values) {
 function Get-AgentProcess {
     if (-not (Test-Path $pidPath)) { return $null }; try { Get-Process -Id ([int](Get-Content $pidPath -Raw)) -ErrorAction Stop } catch { Remove-Item $pidPath -Force -ErrorAction SilentlyContinue; $null }
 }
+function Start-FloatingBall {
+    $ballPidPath = Join-Path $stateDir 'voice-ball.pid'
+    if (Test-Path -LiteralPath $ballPidPath) {
+        try {
+            Get-Process -Id ([int](Get-Content -LiteralPath $ballPidPath -Raw)) -ErrorAction Stop | Out-Null
+            return
+        } catch { Remove-Item -LiteralPath $ballPidPath -Force -ErrorAction SilentlyContinue }
+    }
+    Start-Process powershell.exe -ArgumentList @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+        "$projectRoot\scripts\hermes_voice_ball.ps1"
+    ) -WorkingDirectory $projectRoot
+}
 function Get-HermesApiSettings {
     $command = Get-Command hermes.exe -ErrorAction SilentlyContinue
     if (-not $command) { $command = Get-Command hermes -ErrorAction SilentlyContinue }
@@ -91,13 +104,7 @@ Add-Button '一键启动语音助手' 263 165 {
         $p=Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-NoExit','-File',"$projectRoot\scripts\start_hermes_cloud_audio.ps1",'-KeyFile',$v.KeyFile,'-AudioBaseUrl',$v.AudioBaseUrl) -WorkingDirectory $projectRoot -PassThru
         New-Item -ItemType Directory -Force $stateDir|Out-Null
         Set-Content $pidPath $p.Id -Encoding ascii
-        $ballRunning = $false
-        if (Test-Path -LiteralPath (Join-Path $stateDir 'voice-ball.pid')) {
-            try { Get-Process -Id ([int](Get-Content -LiteralPath (Join-Path $stateDir 'voice-ball.pid') -Raw)) -ErrorAction Stop | Out-Null; $ballRunning = $true } catch { }
-        }
-        if (-not $ballRunning) {
-            Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',"$projectRoot\scripts\hermes_voice_ball.ps1") -WorkingDirectory $projectRoot
-        }
+        Start-FloatingBall
         Start-Sleep -Milliseconds 500
         Refresh-Status
     } catch {[System.Windows.Forms.MessageBox]::Show($_.Exception.Message,'无法启动','OK','Error')|Out-Null}
@@ -107,6 +114,7 @@ Add-Button '语音自检' 528 92 {
     try {$v=Read-Settings;if(!(Test-Path $v.KeyFile)){throw "找不到云端语音密钥文件：$($v.KeyFile)"};$env:SUB2API_AUDIO_KEY_FILE=$v.KeyFile;$env:SUB2API_AUDIO_BASE_URL=$v.AudioBaseUrl;$r=& uv run python "$projectRoot\scripts\sub2api_audio_smoke_test.py" 2>&1;if($LASTEXITCODE -ne 0){throw ($r|Out-String)};$status.Text="自检通过：$($r|Out-String)";$status.ForeColor=[System.Drawing.Color]::ForestGreen}catch{[System.Windows.Forms.MessageBox]::Show($_.Exception.Message,'自检失败','OK','Error')|Out-Null}
 } | Out-Null
 $form.Add_Shown({
+    Start-FloatingBall
     try {
         $detected=Get-HermesApiSettings
         if (-not $hermesKey.Text) { $hermesKey.Text=$detected.Key }
@@ -115,6 +123,7 @@ $form.Add_Shown({
     Refresh-Status
 })
 [void]$form.ShowDialog()
+
 
 
 
