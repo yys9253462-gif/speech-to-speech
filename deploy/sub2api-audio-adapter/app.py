@@ -126,7 +126,7 @@ async def transcribe(
                 raise HTTPException(status_code=502, detail="Invalid transcription response") from exc
             if text or attempt == 1:
                 break
-            payload["messages"][0]["content"][0]["text"] += " 请直接输出听到的文字。"
+            payload["contents"][0]["parts"][0]["text"] += " 请直接输出听到的文字。"
     if not text:
         # The speech-to-speech client starts with a one-second silent warm-up
         # request. Gemini correctly returns no words for silence; an empty
