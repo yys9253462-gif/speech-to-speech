@@ -98,8 +98,11 @@ class ChatTTSHandler(BaseHandler[TTSIn, TTSOut]):
                     return
                 if gen[0] is None or len(gen[0]) == 0:
                     return
-                audio_chunk = librosa.resample(gen[0], orig_sr=24000, target_sr=16000)
-                audio_chunk = (audio_chunk * 32768).astype(np.int16)[0]
+                # ChatTTS 0.2.x yields a one-dimensional waveform while older
+                # versions yielded shape (1, samples). Normalize both forms.
+                waveform = np.asarray(gen[0]).squeeze()
+                audio_chunk = librosa.resample(waveform, orig_sr=24000, target_sr=16000)
+                audio_chunk = (audio_chunk * 32768).astype(np.int16)
                 while len(audio_chunk) > self.chunk_size:
                     yield audio_chunk[: self.chunk_size]  # Return the first chunk_size samples of the audio data
                     audio_chunk = audio_chunk[self.chunk_size :]  # Remove the samples that have already been returned
@@ -108,7 +111,8 @@ class ChatTTSHandler(BaseHandler[TTSIn, TTSOut]):
             wavs = wavs_gen
             if len(wavs[0]) == 0:
                 return
-            audio_chunk = librosa.resample(wavs[0], orig_sr=24000, target_sr=16000)
+            waveform = np.asarray(wavs[0]).squeeze()
+            audio_chunk = librosa.resample(waveform, orig_sr=24000, target_sr=16000)
             audio_chunk = (audio_chunk * 32768).astype(np.int16)
             for i in range(0, len(audio_chunk), self.chunk_size):
                 yield np.pad(

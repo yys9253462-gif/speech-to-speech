@@ -30,6 +30,7 @@ def test_release_defaults_match_responses_api_parakeet_qwen3_profile():
 
     assert module_args.stt == "parakeet-tdt"
     assert module_args.mac_optimal_settings is False
+    assert module_args.hermes is False
     assert module_args.llm_backend == "responses-api"
     assert module_args.tts == "qwen3"
     assert module_args.log_level == "info"
@@ -128,6 +129,69 @@ def test_mac_optimal_settings_preserves_explicit_component_device():
 def test_noncanonical_mac_optimal_settings_flags_are_rejected(flag):
     with pytest.raises(ValueError, match=flag):
         parse_arguments([flag])
+
+
+def test_hermes_preset_configures_chinese_voice_agent(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "local-hermes-secret")
+    monkeypatch.setenv("HERMES_BASE_URL", "http://localhost:9000/v1")
+
+    args = parse_arguments(["--hermes"])
+    prepare_all_args(args)
+
+    assert args.module_kwargs.hermes is True
+    assert args.module_kwargs.stt == "qwen3-asr"
+    assert args.module_kwargs.llm_backend == "chat-completions"
+    expected_tts = "chatTTS" if sys.platform == "win32" else "qwen3"
+    assert args.module_kwargs.tts == expected_tts
+    assert args.stt_backend.config["language"] == "zh"
+    assert args.llm_backend.config["model_name"] == "hermes-agent"
+    assert args.llm_backend.config["base_url"] == "http://localhost:9000/v1"
+    assert args.llm_backend.config["api_key"] == "local-hermes-secret"
+    assert args.llm_backend.config["stream"] is False
+    assert args.llm_backend.config["enable_lang_prompt"] is True
+    assert args.llm_backend.config["stream_batch_sentences"] == 1
+    if sys.platform == "win32":
+        assert args.tts_backend.config["device"] == "cpu"
+    else:
+        assert args.tts_backend.config["language"] == "Chinese"
+
+
+def test_hermes_preset_preserves_explicit_overrides(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "environment-secret")
+
+    args = parse_arguments(
+        [
+            "--hermes",
+            "--stt",
+            "whisper",
+            "--model_name",
+            "custom-hermes-profile",
+            "--responses_api_base_url",
+            "http://127.0.0.1:9999/v1",
+            "--responses_api_api_key",
+            "explicit-secret",
+        ]
+    )
+
+    assert args.module_kwargs.stt == "whisper"
+    assert args.llm_backend.config["model_name"] == "custom-hermes-profile"
+    assert args.llm_backend.config["base_url"] == "http://127.0.0.1:9999/v1"
+    assert args.llm_backend.config["api_key"] == "explicit-secret"
+
+
+def test_hermes_preset_requires_api_key(monkeypatch):
+    monkeypatch.delenv("HERMES_API_KEY", raising=False)
+    args = parse_arguments(["--hermes"])
+
+    with pytest.raises(ValueError, match="HERMES_API_KEY"):
+        prepare_all_args(args)
+
+
+def test_hermes_preset_rejects_mac_preset(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "local-hermes-secret")
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        parse_arguments(["--hermes", "--mac-optimal-settings"])
 
 
 # -- ParsedArguments dataclass tests ------------------------------------------

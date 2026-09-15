@@ -76,6 +76,12 @@ logging.getLogger("numba").setLevel(logging.WARNING)  # quiet down numba logs
 
 MLX_DEFAULT_LM_MODEL = "mlx-community/Qwen3-4B-Instruct-2507-4bit"
 OPENAI_TTS_PLAYBACK_BUFFER_MS = 196.0
+HERMES_DEFAULT_BASE_URL = "http://127.0.0.1:8642/v1"
+HERMES_DEFAULT_MODEL = "hermes-agent"
+HERMES_VOICE_PROMPT = (
+    "你是通过实时语音与用户交流的 Hermes 智能体。始终使用简洁、自然的中文回答。"
+    "需要时使用你已有的工具完成任务，并汇报实际结果。除非用户明确要求，否则不要朗读冗长代码、网址或日志。"
+)
 
 
 def _mac_preset_defaults(llm_backend: str) -> dict[str, Any]:
@@ -94,6 +100,37 @@ def _mac_preset_defaults(llm_backend: str) -> dict[str, Any]:
         defaults["llm_device"] = "mps"
         if llm_backend == "mlx-lm":
             defaults["model_name"] = MLX_DEFAULT_LM_MODEL
+    return defaults
+
+
+def _hermes_preset_defaults() -> dict[str, Any]:
+    """Return a Chinese voice preset for a local Hermes Agent API server."""
+
+    defaults: dict[str, Any] = {
+        "stt": "qwen3-asr",
+        "llm_backend": "chat-completions",
+        "tts": "qwen3",
+        "model_name": HERMES_DEFAULT_MODEL,
+        "responses_api_base_url": os.getenv("HERMES_BASE_URL", HERMES_DEFAULT_BASE_URL),
+        "responses_api_api_key": os.getenv("HERMES_API_KEY"),
+        # Hermes executes its own tools before returning the final assistant
+        # message. Non-streaming mode avoids its custom tool-progress SSE events
+        # being mistaken for standard Chat Completions chunks.
+        "responses_api_stream": False,
+        "responses_api_disable_thinking": False,
+        "qwen3_asr_language": "zh",
+        "qwen3_tts_language": "Chinese",
+        "enable_lang_prompt": True,
+        "stream_batch_sentences": 1,
+        "init_chat_prompt": HERMES_VOICE_PROMPT,
+    }
+    if platform == "win32":
+        # The qwentts.cpp wheel is not published for Windows and the torch
+        # backend requires CUDA graphs. ChatTTS keeps Chinese speech local.
+        defaults.update(
+            tts="chatTTS",
+            chat_tts_device="cpu",
+        )
     return defaults
 
 
@@ -189,24 +226,37 @@ def parse_arguments(
         with open(pipeline_args[0]) as _f:
             pipeline_json = json.load(_f)
         _mac_preset_enabled = bool(pipeline_json.get("mac_optimal_settings", False))
-        _llm_name = pipeline_json.get("llm_backend") or (
-            "mlx-lm" if _mac_preset_enabled else module_defaults.llm_backend
+        _hermes_preset_enabled = bool(pipeline_json.get("hermes", False))
+        if _mac_preset_enabled and _hermes_preset_enabled:
+            raise ValueError("--hermes cannot be combined with --mac-optimal-settings.")
+        preset_defaults = _hermes_preset_defaults() if _hermes_preset_enabled else {}
+        _llm_name = pipeline_json.get("llm_backend") or preset_defaults.get(
+            "llm_backend", "mlx-lm" if _mac_preset_enabled else module_defaults.llm_backend
         )
         if _mac_preset_enabled:
             pipeline_json = {**_mac_preset_defaults(_llm_name), **pipeline_json}
+        elif _hermes_preset_enabled:
+            pipeline_json = {**preset_defaults, **pipeline_json}
         _stt_name = pipeline_json.get("stt") or module_defaults.stt
         _tts_name = pipeline_json.get("tts") or module_defaults.tts
     else:
         _pre = argparse.ArgumentParser(prog=f"speech-to-speech {command}", add_help=False)
         _pre.add_argument("--mac-optimal-settings", action="store_true")
+        _pre.add_argument("--hermes", action="store_true")
         _pre.add_argument("--stt", choices=tuple(STT_BACKENDS))
         _pre.add_argument("--llm_backend", "--llm-backend", choices=tuple(LLM_BACKENDS))
         _pre.add_argument("--tts", choices=tuple(TTS_BACKENDS))
         _pre_args = _pre.parse_known_args(pipeline_args)[0]
         _mac_preset_enabled = _pre_args.mac_optimal_settings
-        _stt_name = _pre_args.stt or module_defaults.stt
-        _llm_name = _pre_args.llm_backend or ("mlx-lm" if _mac_preset_enabled else module_defaults.llm_backend)
-        _tts_name = _pre_args.tts or module_defaults.tts
+        _hermes_preset_enabled = _pre_args.hermes
+        if _mac_preset_enabled and _hermes_preset_enabled:
+            raise ValueError("--hermes cannot be combined with --mac-optimal-settings.")
+        preset_defaults = _hermes_preset_defaults() if _hermes_preset_enabled else {}
+        _stt_name = _pre_args.stt or preset_defaults.get("stt", module_defaults.stt)
+        _llm_name = _pre_args.llm_backend or preset_defaults.get(
+            "llm_backend", "mlx-lm" if _mac_preset_enabled else module_defaults.llm_backend
+        )
+        _tts_name = _pre_args.tts or preset_defaults.get("tts", module_defaults.tts)
 
     selected_specs = []
     for registry, name in (
@@ -245,6 +295,8 @@ def parse_arguments(
     mac_action.option_strings = [option for option in mac_action.option_strings if option != "--mac_optimal_settings"]
     if _mac_preset_enabled:
         parser.set_defaults(**_mac_preset_defaults(_llm_name))
+    elif _hermes_preset_enabled:
+        parser.set_defaults(**_hermes_preset_defaults())
 
     if _is_json:
         assert pipeline_json is not None
@@ -332,6 +384,11 @@ def prepare_module_args(module_kwargs: ModuleArguments, llm_backend: BackendSele
         raise ValueError(
             f"The LLM proxy requires a backend with proxy support; choose one of: {supported}. "
             f"Got {llm_backend.name!r}."
+        )
+    if module_kwargs.hermes and not llm_backend.config.get("api_key"):
+        raise ValueError(
+            "The Hermes preset requires authentication. Set HERMES_API_KEY to Hermes' API_SERVER_KEY "
+            "or pass --responses_api_api_key."
         )
     if platform == "darwin":
         check_mac_settings(module_kwargs)

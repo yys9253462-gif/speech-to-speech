@@ -23,6 +23,17 @@ class ModuleArguments:
             "global-device, and component-device flags override these defaults. It does not select a command.",
         },
     )
+    hermes: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Use the Hermes Agent voice preset: local Chinese ASR/TTS with the Hermes "
+                "OpenAI-compatible Chat Completions API. Set HERMES_API_KEY to Hermes' API_SERVER_KEY; "
+                "HERMES_BASE_URL defaults to http://127.0.0.1:8642/v1. Explicit backend options override "
+                "the preset."
+            )
+        },
+    )
     stt: Optional[str] = field(
         default="parakeet-tdt",
         metadata={

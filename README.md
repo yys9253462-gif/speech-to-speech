@@ -101,6 +101,51 @@ speech-to-speech local \
 
 This uses the default OpenAI model described under [Realtime Server](#realtime-server), with provider API charges. Only the speech models download locally: approximately **5.2 GB** of core weights on Apple Silicon, plus dependencies and auxiliary assets; Linux uses different speech-model formats and caches. Transcribed text, instructions, and conversation history are sent to OpenAI. Microphone audio and speech synthesis remain on your computer in this configuration. For another provider, see [LLM backends](#llm-backends).
 
+### Chinese voice agent with Hermes
+
+The Hermes preset connects local Chinese speech recognition and synthesis to a
+running [Hermes Agent API server](https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server).
+Hermes keeps its own tools, skills, memory, and file or terminal access; this
+project supplies the realtime microphone, turn detection, and spoken response.
+
+First enable and start Hermes' API server. Then expose the same value as Hermes'
+`API_SERVER_KEY` to this process:
+
+```bash
+export HERMES_API_KEY="your-Hermes-API_SERVER_KEY"
+speech-to-speech local --hermes
+```
+
+PowerShell:
+
+```powershell
+$env:HERMES_API_KEY = "your-Hermes-API_SERVER_KEY"
+speech-to-speech local --hermes
+```
+
+The preset uses `http://127.0.0.1:8642/v1`, model `hermes-agent`, and Qwen3-ASR
+with Chinese forced. Linux and macOS use Qwen3-TTS. Windows automatically uses
+ChatTTS on CPU because Qwen3's GGML dependency does not publish a Windows wheel
+and its torch backend requires CUDA. Install the Windows voice dependency with
+`uv sync --extra chattts`. Explicit `--tts` options still override the platform
+default. Override the server when Hermes runs elsewhere:
+
+```bash
+export HERMES_BASE_URL="http://hermes-host:8642/v1"
+speech-to-speech local --hermes
+```
+
+Hermes' Chat Completions response is non-streaming in this first integration.
+This lets Hermes finish server-side tool calls before the final answer is spoken
+and avoids exposing Hermes-specific tool-progress events as ordinary text. The
+microphone remains interruptible while speech is playing.
+
+To verify the bridge without using a microphone, start it with
+`speech-to-speech serve --hermes`, then run
+`python scripts/hermes_smoke_test.py`. The smoke test sends a Chinese turn,
+checks the returned PCM audio, feeds that audio back through speech recognition,
+and checks the second Hermes response and audio stream.
+
 ### Other clients and offline use
 
 For offline use, first cache the selected models and dependencies as described in [Offline operation](#offline-operation).
