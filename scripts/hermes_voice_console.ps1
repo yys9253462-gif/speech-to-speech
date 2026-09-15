@@ -27,10 +27,17 @@ function Get-HermesApiSettings {
     $command = Get-Command hermes.exe -ErrorAction SilentlyContinue
     if (-not $command) { $command = Get-Command hermes -ErrorAction SilentlyContinue }
     if (-not $command) { throw '未找到 Hermes 命令行程序。请先安装并启动 Hermes。' }
-    $key = ((& $command.Source config get API_SERVER_KEY 2>$null) | Select-Object -First 1).Trim()
+    function Get-HermesConfigValue([string]$name) {
+        $raw = @(& $command.Source config get $name 2>$null)
+        if ($LASTEXITCODE -ne 0) { return '' }
+        $value = ([string]($raw | Select-Object -First 1)).Trim()
+        if ($value -match '^Config key not set:') { return '' }
+        return $value
+    }
+    $key = Get-HermesConfigValue 'API_SERVER_KEY'
     if (-not $key) { throw 'Hermes 尚未配置 API_SERVER_KEY。请先在 Hermes 中启用 API Server。' }
-    $serverHost = ((& $command.Source config get API_SERVER_HOST 2>$null) | Select-Object -First 1).Trim()
-    $serverPort = ((& $command.Source config get API_SERVER_PORT 2>$null) | Select-Object -First 1).Trim()
+    $serverHost = Get-HermesConfigValue 'API_SERVER_HOST'
+    $serverPort = Get-HermesConfigValue 'API_SERVER_PORT'
     if (-not $serverHost -or $serverHost -eq '0.0.0.0') { $serverHost = '127.0.0.1' }
     if (-not $serverPort) { $serverPort = '8642' }
     @{ Key=$key; BaseUrl="http://$serverHost`:$serverPort/v1" }
@@ -91,4 +98,5 @@ $form.Add_Shown({
     Refresh-Status
 })
 [void]$form.ShowDialog()
+
 
