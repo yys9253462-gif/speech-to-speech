@@ -28,8 +28,18 @@ function Get-HermesApiSettings {
     if (-not $command) { $command = Get-Command hermes -ErrorAction SilentlyContinue }
     if (-not $command) { throw '未找到 Hermes 命令行程序。请先安装并启动 Hermes。' }
     function Get-HermesConfigValue([string]$name) {
-        $raw = @(& $command.Source config get $name 2>$null)
-        if ($LASTEXITCODE -ne 0) { return '' }
+        # Windows PowerShell turns Hermes' "Config key not set" stderr into a
+        # terminating NativeCommandError when the script uses Stop globally.
+        # Temporarily allow that expected exit and use the exit code below.
+        $savedPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $raw = @(& $command.Source config get $name 2>$null)
+            $exitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $savedPreference
+        }
+        if ($exitCode -ne 0) { return '' }
         $value = ([string]($raw | Select-Object -First 1)).Trim()
         if ($value -match '^Config key not set:') { return '' }
         return $value
@@ -98,5 +108,6 @@ $form.Add_Shown({
     Refresh-Status
 })
 [void]$form.ShowDialog()
+
 
 
