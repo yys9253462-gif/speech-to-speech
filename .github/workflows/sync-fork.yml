@@ -1,0 +1,52 @@
+# 定时把上游（huggingface/speech-to-speech）的新提交合并进本 fork。
+#
+# 本仓库只是留个自己的副本，不发布任何构建产物，因此同步后不触发其它工作流。
+# 上游自带的 ci.yml / publish.yml 会跟随同步进来的代码一起更新。
+#
+# 合并冲突时本工作流会失败并保留现场（绝不 force push），此时需人工合并。
+
+name: Sync fork
+
+on:
+  schedule:
+    # 每天北京时间 03:47 = UTC 19:47，与另外两个 fork 的同步错开，避免抢占运行器。
+    # 不取整点：GitHub schedule 在整点高峰排队严重，实测会被延迟甚至静默丢弃。
+    - cron: '47 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-fork
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出本 fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 合并上游新提交
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/huggingface/speech-to-speech.git
+          git fetch upstream --prune --tags
+
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "上游无新提交，跳过"
+            exit 0
+          fi
+
+          if ! git merge --no-edit upstream/main; then
+            echo "::error::与上游合并冲突，需人工处理（未做任何推送）"
+            git merge --abort || true
+            exit 1
+          fi
+
+          git push origin HEAD:main
