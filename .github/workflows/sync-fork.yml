@@ -49,4 +49,24 @@ jobs:
             exit 1
           fi
 
-          git push origin HEAD:main
+          # 直接推；若被拒则回退重试。
+          #
+          # 为什么会被拒：上游一旦改动 .github/workflows/*（如 publish.yml），
+          # 而本工作流用的是仓库自带 GITHUB_TOKEN（GitHub App 身份），
+          # GitHub 会拒绝它创建/更新 workflow 文件：
+          #   refusing to allow a GitHub App to create or update workflow ... without `workflows` permission
+          # 实测 2026-09-28 ~ 09-30 连续三天：合并成功但 push 被拒 → 整条同步失败，
+          # 上游新提交一直没进来（下次上游改 workflow 时仍会复发）。
+          # 处理：保留 fork 自身的工作流文件后重试（代码照常同步，只是不跟进上游的 CI 改动）。
+          # 想连工作流也一起跟进，就给仓库加一个有 workflow scope 的 PAT 存成 secret
+          # （如 SYNC_PAT），把下面 push 的凭据换成它即可。
+          if git push origin HEAD:main; then
+            echo "同步完成（含上游工作流改动）"
+          else
+            echo "::warning::push 被拒（GITHUB_TOKEN 无 workflows 权限，通常因上游改了 .github/workflows/*）"
+            echo "::warning::改为保留 fork 自身工作流后重试"
+            git checkout HEAD^1 -- .github/workflows/ || true
+            git commit -m "ci: 同步时保留 fork 自身工作流（GITHUB_TOKEN 无 workflows 权限）" || true
+            git push origin HEAD:main
+            echo "同步完成（已保留 fork 自身工作流）"
+          fi
