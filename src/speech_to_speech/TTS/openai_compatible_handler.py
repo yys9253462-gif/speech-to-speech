@@ -17,6 +17,7 @@ from scipy.signal import firwin, lfilter
 
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.baseHandler import BaseHandler
+from speech_to_speech.LLM.utils import WHISPER_LANGUAGE_TO_LLM_LANGUAGE
 from speech_to_speech.pipeline.cancel_scope import CancelScope
 from speech_to_speech.pipeline.events import ResponseFailedEvent
 from speech_to_speech.pipeline.handler_types import TTSIn, TTSOut
@@ -26,6 +27,7 @@ from speech_to_speech.pipeline.speculative_turns import SpeculativeTurnTracker
 logger = logging.getLogger(__name__)
 
 PIPELINE_SAMPLE_RATE = 16000
+QWEN3_TTS_LANGUAGE_CODES = frozenset({"zh", "en", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"})
 
 
 class SpeechRequestCancelled(RuntimeError):
@@ -379,6 +381,7 @@ class OpenAICompatibleTTSHandler(BaseHandler[TTSIn, TTSOut]):
         blocksize: int = 512,
         cancel_scope: CancelScope | None = None,
         speculative_turns: SpeculativeTurnTracker | None = None,
+        detect_llm_output_language: bool = False,
         gen_kwargs: dict[str, Any] | None = None,
     ) -> None:
         if response_format not in {"pcm", "wav"}:
@@ -409,6 +412,7 @@ class OpenAICompatibleTTSHandler(BaseHandler[TTSIn, TTSOut]):
         self.blocksize = blocksize
         self.cancel_scope = cancel_scope
         self.speculative_turns = speculative_turns
+        self.detect_llm_output_language = detect_llm_output_language
         self.gen_kwargs = gen_kwargs or {}
         self._operation_lock = Lock()
         self._active_operation: HttpSpeechOperation | None = None
@@ -510,7 +514,44 @@ class OpenAICompatibleTTSHandler(BaseHandler[TTSIn, TTSOut]):
 
         try:
             voice = self._resolve_voice(tts_input.runtime_config, tts_input.response)
-            operation = self._make_operation(text=text, voice=voice)
+            selected = tts_input.selected_language
+            use_detected_language = (
+                selected is None
+                and self.detect_llm_output_language
+                and isinstance(self.language, str)
+                and self.language.strip().lower() == "auto"
+            )
+            if selected is None and not use_detected_language:
+                operation = self._make_operation(text=text, voice=voice)
+            else:
+                language = (
+                    tts_input.response_assistant_language_code if use_detected_language else tts_input.tts_language_code
+                )
+                if (
+                    (use_detected_language or selected == "auto")
+                    and "qwen3-tts" in self.model.lower()
+                    and language not in QWEN3_TTS_LANGUAGE_CODES
+                ):
+                    language = None
+                elif (
+                    selected not in (None, "auto")
+                    and "qwen3-tts" in self.model.lower()
+                    and language not in QWEN3_TTS_LANGUAGE_CODES
+                ):
+                    # A detected language Qwen3 cannot speak keeps the session language.
+                    language = selected
+                if language is None and use_detected_language:
+                    language = self.language
+                elif language is None and selected == "auto" and "qwen3-tts" in self.model.lower():
+                    language = "auto"
+                if language is not None and "qwen3-tts" in self.model.lower():
+                    language = WHISPER_LANGUAGE_TO_LLM_LANGUAGE.get(language, language).title()
+                operation = self._make_operation(
+                    text=text,
+                    voice=voice,
+                    language=language,
+                    use_setup_language=False,
+                )
             with self._operation_lock:
                 self._active_operation = operation
             source_chunks = operation.iter_bytes(cancel_check)
@@ -581,11 +622,18 @@ class OpenAICompatibleTTSHandler(BaseHandler[TTSIn, TTSOut]):
         *,
         text: str,
         voice: str | dict[str, str],
+        language: str | None = None,
+        use_setup_language: bool = True,
     ) -> HttpSpeechOperation:
         return HttpSpeechOperation(
             endpoint_url=self.endpoint_url,
             api_key=self.api_key,
-            payload=self._request_payload(text=text, voice=voice),
+            payload=self._request_payload(
+                text=text,
+                voice=voice,
+                language=language,
+                use_setup_language=use_setup_language,
+            ),
             timeout_s=self.timeout,
             response_format=self.response_format,
         )
@@ -595,6 +643,8 @@ class OpenAICompatibleTTSHandler(BaseHandler[TTSIn, TTSOut]):
         *,
         text: str,
         voice: str | dict[str, str],
+        language: str | None = None,
+        use_setup_language: bool = True,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self.model,
@@ -609,8 +659,12 @@ class OpenAICompatibleTTSHandler(BaseHandler[TTSIn, TTSOut]):
             payload["stream"] = True
         elif self.speed != 1.0:
             payload["speed"] = self.speed
-        if self.language:
-            payload["language"] = self.language
+        if use_setup_language:
+            language = self.language
+        if language:
+            payload["language"] = language
+        elif not use_setup_language:
+            payload.pop("language", None)
         if self.task_type:
             payload["task_type"] = self.task_type
         if self.instructions:
@@ -729,7 +783,7 @@ class OpenAICompatibleTTSHandler(BaseHandler[TTSIn, TTSOut]):
         on_first_source_audio: Callable[[], None] | None = None,
     ) -> Iterator[np.ndarray]:
         resampler = _StreamingFIRResampler(source_rate, PIPELINE_SAMPLE_RATE)
-        sample_remainder = np.empty(0, dtype=np.int16)
+        sample_remainder: np.ndarray = np.empty(0, dtype=np.int16)
         for samples in sample_chunks:
             if on_first_source_audio is not None and samples.size:
                 on_first_source_audio()
